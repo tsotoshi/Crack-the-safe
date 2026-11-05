@@ -80,8 +80,9 @@
   input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .45; cursor: not-allowed; }
 
-  .stats { display: flex; justify-content: space-between; font-size: .9rem; color: var(--muted); }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; font-size: .9rem; color: var(--muted); }
   .stats b { color: var(--fg); font-family: var(--mono); }
+  .stats b.urgent { color: var(--hot); }
 
   .history { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; }
   .chip { font: 500 .85rem var(--mono); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
@@ -97,7 +98,7 @@
 <main class="vault">
   <header>
     <h1>Crack the Safe</h1>
-    <p class="intro">The code is a number from 1 to 100. You have 7 tries. Each guess tells you which way to turn the dial.</p>
+    <p class="intro">The code is a number from 1 to 100. You have 7 tries and 60 seconds. The clock starts on your first guess. Each guess tells you which way to turn the dial.</p>
   </header>
 
   <div class="readout" id="readout" aria-live="polite">??</div>
@@ -117,6 +118,7 @@
 
   <div class="stats">
     <span>Tries left: <b id="tries">7</b></span>
+    <span>Time: <b id="timer">60s</b></span>
     <span>Best: <b id="best">–</b></span>
   </div>
 
@@ -127,6 +129,7 @@
   // ----- Game settings -----
   const MAX_NUMBER = 100;
   const MAX_TRIES = 7;
+  const TIME_LIMIT = 60; // seconds
 
   // ----- Find the page elements we'll update -----
   const readout = document.getElementById("readout");
@@ -139,10 +142,13 @@
   const triesText = document.getElementById("tries");
   const bestText = document.getElementById("best");
   const againButton = document.getElementById("again");
+  const timerText = document.getElementById("timer");
 
   // ----- Game state (the things that change while you play) -----
   let secretCode;
   let triesLeft;
+  let timeLeft;
+  let timerId = null; // the running countdown, or null when stopped
 
   // Best score is remembered in your browser (fewest tries to win).
   function loadBest() {
@@ -215,10 +221,38 @@
     }
   }
 
+  // ----- Countdown timer -----
+  function showTime() {
+    timerText.textContent = timeLeft + "s";
+    timerText.classList.toggle("urgent", timeLeft <= 10); // turn red for the last 10 seconds
+  }
+
+  function startTimer() {
+    // setInterval runs the code inside once every 1000 milliseconds (1 second)
+    timerId = setInterval(() => {
+      timeLeft--;
+      showTime();
+      if (timeLeft === 0) {
+        message.textContent = `Time's up! The code was ${secretCode}.`;
+        readout.className = "readout lose";
+        playWrongSound();
+        endGame();
+      }
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerId);
+    timerId = null;
+  }
+
   // Start (or restart) a round.
   function newGame() {
     secretCode = Math.floor(Math.random() * MAX_NUMBER) + 1; // random 1..100
     triesLeft = MAX_TRIES;
+    stopTimer();
+    timeLeft = TIME_LIMIT;
+    showTime();
     readout.textContent = "??";
     readout.className = "readout";
     message.textContent = "Enter your first guess.";
@@ -243,6 +277,9 @@
       message.textContent = "Pick a whole number from 1 to 100.";
       return;
     }
+
+    // Start the clock on the first guess
+    if (timerId === null) startTimer();
 
     triesLeft--;
     triesText.textContent = triesLeft;
@@ -286,6 +323,7 @@
   });
 
   function endGame() {
+    stopTimer();
     input.disabled = true;
     tryButton.disabled = true;
     againButton.hidden = false;
