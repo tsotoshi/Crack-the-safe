@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Crack the Safe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: one centered vault panel; the dial readout is the hero, controls sit under it. */
+  :root {
+    --bg: #e7ebe9;        /* brushed steel, light */
+    --panel: #f6f8f7;
+    --fg: #1c2421;
+    --muted: #5d6a65;
+    --line: #c4ccc8;
+    --accent: #b8860b;    /* brass */
+    --hot: #c2410c;
+    --cold: #2563a8;
+    --win: #15803d;
+    --display: "Chakra Petch", "Trebuchet MS", sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141917; --panel: #1d2421; --fg: #e4ebe7; --muted: #94a39c; --line: #34403b;
+      --accent: #e0b04a; --hot: #fb8a4c; --cold: #6aa8ec; --win: #4ade80; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141917; --panel: #1d2421; --fg: #e4ebe7; --muted: #94a39c; --line: #34403b;
+    --accent: #e0b04a; --hot: #fb8a4c; --cold: #6aa8ec; --win: #4ade80; color-scheme: dark;
+  }
+
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px;
+    display: grid; place-items: center;
+    padding-block: 32px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .vault {
+    width: 100%; max-width: 420px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px;
+    display: grid; gap: 20px;
+  }
+  h1 { font-family: var(--display); font-size: 1.9rem; margin: 0; letter-spacing: 0.02em; text-wrap: balance; }
+  .intro { margin: 4px 0 0; color: var(--muted); line-height: 1.5; }
+
+  /* The readout: shows your last guess like a lock display */
+  .readout {
+    font-family: var(--display); font-weight: 700; font-size: 4.5rem; line-height: 1;
+    text-align: center; padding: 18px 0; border-radius: 10px;
+    background: var(--bg); border: 2px solid var(--line);
+    font-variant-numeric: tabular-nums; transition: border-color .3s, color .3s;
+  }
+  .readout.win { border-color: var(--win); color: var(--win); }
+  .readout.lose { border-color: var(--hot); color: var(--hot); }
+
+  .message { min-height: 1.5em; margin: 0; text-align: center; font-weight: 600; }
+
+  /* Closeness meter: fills up as you get nearer the code */
+  .meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0; background: var(--cold); transition: width .4s, background .4s; }
+  .meter-label { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 6px; }
+
+  form { display: flex; gap: 10px; }
+  input {
+    flex: 1; min-width: 0; font: 500 1.2rem var(--mono); padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg);
+  }
+  button {
+    font: 700 1rem var(--display); letter-spacing: .04em; padding: 12px 20px; border-radius: 8px;
+    border: none; background: var(--accent); color: #1c1606; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  .stats { display: flex; justify-content: space-between; font-size: .9rem; color: var(--muted); }
+  .stats b { color: var(--fg); font-family: var(--mono); }
+
+  .history { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; }
+  .chip { font: 500 .85rem var(--mono); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  .chip.up { color: var(--cold); }
+  .chip.down { color: var(--hot); }
+
+  #again { width: 100%; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<main class="vault">
+  <header>
+    <h1>Crack the Safe</h1>
+    <p class="intro">The code is a number from 1 to 100. You have 7 tries. Each guess tells you which way to turn the dial.</p>
+  </header>
+
+  <div class="readout" id="readout" aria-live="polite">??</div>
+  <p class="message" id="message">Enter your first guess.</p>
+
+  <div>
+    <div class="meter"><span id="meter-fill"></span></div>
+    <div class="meter-label"><span>Cold</span><span>Hot</span></div>
+  </div>
+
+  <form id="guess-form">
+    <input id="guess" type="number" min="1" max="100" inputmode="numeric" placeholder="1–100" aria-label="Your guess" required>
+    <button id="try" type="submit">Try</button>
+  </form>
+
+  <div class="history" id="history" aria-label="Past guesses"></div>
+
+  <div class="stats">
+    <span>Tries left: <b id="tries">7</b></span>
+    <span>Best: <b id="best">–</b></span>
+  </div>
+
+  <button id="again" type="button" hidden>Play again</button>
+</main>
+
+<script>
+  // ----- Game settings -----
+  const MAX_NUMBER = 100;
+  const MAX_TRIES = 7;
+
+  // ----- Find the page elements we'll update -----
+  const readout = document.getElementById("readout");
+  const message = document.getElementById("message");
+  const meterFill = document.getElementById("meter-fill");
+  const form = document.getElementById("guess-form");
+  const input = document.getElementById("guess");
+  const tryButton = document.getElementById("try");
+  const historyBox = document.getElementById("history");
+  const triesText = document.getElementById("tries");
+  const bestText = document.getElementById("best");
+  const againButton = document.getElementById("again");
+
+  // ----- Game state (the things that change while you play) -----
+  let secretCode;
+  let triesLeft;
+
+  // Best score is remembered in your browser (fewest tries to win).
+  function loadBest() {
+    try { return Number(localStorage.getItem("safe-best")) || null; } catch { return null; }
+  }
+  function saveBest(n) {
+    try { localStorage.setItem("safe-best", n); } catch {}
+  }
+
+  // ----- Win sound -----
+  // Made with the browser's built-in Web Audio API, so no sound file is needed.
+  // First a short "clunk" (the lock opening), then three rising notes.
+  let audio;
+  function playWinSound() {
+    try {
+      audio = audio || new AudioContext();
+      const now = audio.currentTime;
+
+      // The clunk: a quick low tone that drops in pitch
+      const clunk = audio.createOscillator();
+      const clunkVol = audio.createGain();
+      clunk.type = "square";
+      clunk.frequency.setValueAtTime(160, now);
+      clunk.frequency.exponentialRampToValueAtTime(50, now + 0.12);
+      clunkVol.gain.setValueAtTime(0.25, now);
+      clunkVol.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      clunk.connect(clunkVol).connect(audio.destination);
+      clunk.start(now);
+      clunk.stop(now + 0.15);
+
+      // The chime: three notes going up (C, E, G)
+      [523.25, 659.25, 783.99].forEach((freq, i) => {
+        const start = now + 0.2 + i * 0.12;
+        const note = audio.createOscillator();
+        const vol = audio.createGain();
+        note.type = "triangle";
+        note.frequency.value = freq;
+        vol.gain.setValueAtTime(0.0001, start);
+        vol.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
+        vol.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+        note.connect(vol).connect(audio.destination);
+        note.start(start);
+        note.stop(start + 0.5);
+      });
+    } catch {
+      // If the browser can't play sound, the game still works silently.
+    }
+  }
+
+  // ----- Wrong-guess sound -----
+  // Two short, low buzzes, like a lock refusing to turn.
+  function playWrongSound() {
+    try {
+      audio = audio || new AudioContext();
+      const now = audio.currentTime;
+      [0, 0.14].forEach((delay) => {
+        const start = now + delay;
+        const buzz = audio.createOscillator();
+        const vol = audio.createGain();
+        buzz.type = "sawtooth";
+        buzz.frequency.value = 110; // a low A note
+        vol.gain.setValueAtTime(0.15, start);
+        vol.gain.exponentialRampToValueAtTime(0.001, start + 0.1);
+        buzz.connect(vol).connect(audio.destination);
+        buzz.start(start);
+        buzz.stop(start + 0.1);
+      });
+    } catch {
+      // No sound available: the game keeps working silently.
+    }
+  }
+
+  // Start (or restart) a round.
+  function newGame() {
+    secretCode = Math.floor(Math.random() * MAX_NUMBER) + 1; // random 1..100
+    triesLeft = MAX_TRIES;
+    readout.textContent = "??";
+    readout.className = "readout";
+    message.textContent = "Enter your first guess.";
+    meterFill.style.width = "0";
+    historyBox.innerHTML = "";
+    triesText.textContent = triesLeft;
+    input.disabled = false;
+    tryButton.disabled = false;
+    againButton.hidden = true;
+    input.value = "";
+    input.focus();
+    const best = loadBest();
+    bestText.textContent = best ? best + " tries" : "–";
+  }
+
+  // Runs every time you press "Try".
+  form.addEventListener("submit", (event) => {
+    event.preventDefault(); // stop the page from reloading
+
+    const guess = Number(input.value);
+    if (!Number.isInteger(guess) || guess < 1 || guess > MAX_NUMBER) {
+      message.textContent = "Pick a whole number from 1 to 100.";
+      return;
+    }
+
+    triesLeft--;
+    triesText.textContent = triesLeft;
+    readout.textContent = guess;
+    input.value = "";
+
+    // How close? 0 = far away, 1 = exact.
+    const distance = Math.abs(guess - secretCode);
+    const closeness = 1 - distance / MAX_NUMBER;
+    meterFill.style.width = (closeness * 100) + "%";
+    meterFill.style.background = distance <= 10 ? "var(--hot)" : "var(--cold)";
+
+    if (guess === secretCode) {
+      const used = MAX_TRIES - triesLeft;
+      message.textContent = `Click! The safe opens. You cracked it in ${used} ${used === 1 ? "try" : "tries"}.`;
+      readout.className = "readout win";
+      playWinSound();
+      const best = loadBest();
+      if (!best || used < best) { saveBest(used); bestText.textContent = used + " tries"; }
+      endGame();
+      return;
+    }
+
+    // Wrong guess: play the buzz, then add a chip showing the guess and the direction.
+    playWrongSound();
+    const higher = guess < secretCode;
+    const chip = document.createElement("span");
+    chip.className = "chip " + (higher ? "up" : "down");
+    chip.textContent = guess + (higher ? " ↑" : " ↓");
+    historyBox.appendChild(chip);
+
+    if (triesLeft === 0) {
+      message.textContent = `Out of tries. The code was ${secretCode}.`;
+      readout.className = "readout lose";
+      endGame();
+    } else {
+      const hint = distance <= 5 ? "Very hot!" : distance <= 10 ? "Warm." : "Cold.";
+      message.textContent = `${higher ? "Higher" : "Lower"}. ${hint}`;
+      input.focus();
+    }
+  });
+
+  function endGame() {
+    input.disabled = true;
+    tryButton.disabled = true;
+    againButton.hidden = false;
+    againButton.focus();
+  }
+
+  againButton.addEventListener("click", newGame);
+
+  newGame();
+</script>
+</body>
+</html>
